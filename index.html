@@ -215,13 +215,32 @@ const SCENES=[
 let currentScene=0,stream=null,mediaRecorder=null,recordedChunks=[],timerInterval=null,elapsedSeconds=0,isCameraOn=false,isRecording=false,isCountingDown=false,recognition=null,facingMode='environment';
 let sceneStatuses=Array(5).fill('none');
 const synth=window.speechSynthesis;
+let ttsReady=false;
+
+// iOS에서 TTS 활성화 - 첫 터치 시점에 unlock
+function unlockTTS(){
+  if(ttsReady)return;
+  const u=new SpeechSynthesisUtterance('');
+  u.volume=0;
+  synth.speak(u);
+  ttsReady=true;
+}
 
 function speak(text,onEnd){
-  synth.cancel();
-  const u=new SpeechSynthesisUtterance(text);
-  u.lang='ko-KR'; u.rate=0.85; u.pitch=1.1; u.volume=1;
-  if(onEnd) u.onend=onEnd;
-  synth.speak(u);
+  try{
+    synth.cancel();
+    const u=new SpeechSynthesisUtterance(text);
+    u.lang='ko-KR'; u.rate=0.85; u.pitch=1.1; u.volume=1;
+    u.onend=()=>{ if(onEnd)onEnd(); };
+    u.onerror=()=>{ if(onEnd)onEnd(); }; // 실패해도 다음 단계 진행
+    synth.speak(u);
+    // iOS 버그 방지: 0.1초 후에도 안 시작되면 강제 진행
+    setTimeout(()=>{
+      if(!synth.speaking && onEnd){ onEnd(); }
+    },800);
+  }catch(e){
+    if(onEnd)onEnd();
+  }
 }
 
 function showAnim(text,cls,dur,cb){
@@ -235,6 +254,7 @@ function showAnim(text,cls,dur,cb){
 }
 
 function handleRecordBtn(){
+  unlockTTS();
   if(!isCameraOn){openCamera();return;}
   if(isCountingDown)return;
   if(isRecording){stopSTT();stopRecording();}
@@ -244,18 +264,22 @@ function handleRecordBtn(){
 function doReadyAction(){
   isCountingDown=true;
   document.getElementById('recordBtn').classList.add('disabled');
-  speak('레디',()=>{
-    showAnim('READY','',700,()=>{
-      setTimeout(()=>{
-        speak('액션',()=>{
-          showAnim('ACTION!','c-accent',700,()=>{
-            isCountingDown=false;
-            startRecording();
-          });
-        });
-      },150);
-    });
-  });
+
+  // READY
+  showAnim('READY','',800);
+  speak('레디', null);
+
+  // ACTION (1.2초 후 무조건 실행)
+  setTimeout(()=>{
+    showAnim('ACTION!','c-accent',800);
+    speak('액션', null);
+  },1200);
+
+  // 녹화 시작 (2.2초 후 무조건)
+  setTimeout(()=>{
+    isCountingDown=false;
+    startRecording();
+  },2200);
 }
 
 function startRecording(){
@@ -323,9 +347,9 @@ function stopSTT(){if(recognition){try{recognition.stop();}catch(e){}recognition
 
 function autoCut(){
   stopSTT();
-  synth.cancel();
-  showAnim('CUT!','c-green',700);
-  speak('컷',()=>{stopRecording();});
+  showAnim('CUT!','c-green',800);
+  speak('컷', null);
+  setTimeout(()=>{ if(isRecording)stopRecording(); },600);
 }
 
 async function openCamera(){
